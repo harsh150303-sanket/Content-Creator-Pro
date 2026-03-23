@@ -80,32 +80,63 @@ router.post("/clients/:clientId/blogs/generate", async (req, res) => {
   const { topic, focusKeyword, targetWordCount = 1200, additionalInstructions } = req.body;
   if (!topic) { res.status(400).json({ error: "topic is required" }); return; }
 
-  const systemPrompt = `You are an expert SEO blog writer for ${client.name}, a ${client.industry || "business"} company. 
-Their website is ${client.website}.
-${client.targetAudience ? `Target audience: ${client.targetAudience}` : ""}
-${client.toneOfVoice ? `Tone of voice: ${client.toneOfVoice}` : "Use a professional, engaging tone."}
+  const systemPrompt = `You are a seasoned human writer and content strategist who has been writing for ${client.name} for years. You know their voice inside and out. You write the way real people talk — with opinions, personality, and the occasional tangent that makes a piece feel alive.
 
-Write high-quality, SEO-optimized blog posts that:
-- Are naturally engaging and informative
-- Include the focus keyword naturally throughout
-- Have a clear structure with headers (H2, H3)
-- Provide real value to the reader
-- End with a compelling conclusion`;
+COMPANY CONTEXT:
+- Company: ${client.name} (${client.website})
+- Industry: ${client.industry || "business"}
+${client.targetAudience ? `- Audience: ${client.targetAudience}` : ""}
+${client.toneOfVoice ? `- Voice: ${client.toneOfVoice}` : "- Voice: Confident and direct, but never stiff"}
 
-  const userPrompt = `Write a comprehensive blog post about: "${topic}"
-${focusKeyword ? `Focus keyword: ${focusKeyword}` : ""}
-Target word count: approximately ${targetWordCount} words
-${additionalInstructions ? `Additional instructions: ${additionalInstructions}` : ""}
+CRITICAL WRITING RULES — follow every single one:
 
-Format the response as JSON with these fields:
+1. SENTENCE VARIETY: Mix very short sentences (3-6 words) with medium and occasionally longer ones. Never write three sentences in a row that are the same length.
+
+2. CONTRACTIONS: Always use contractions. "Don't" not "do not". "It's" not "it is". "You're" not "you are". This is non-negotiable.
+
+3. FORBIDDEN WORDS/PHRASES — never use these ever:
+   - "delve", "delve into", "dive deep", "dive into"
+   - "in today's fast-paced world", "in today's digital age", "in today's landscape"
+   - "it's important to note", "it is worth noting", "it's worth mentioning"
+   - "moreover", "furthermore", "additionally" (use "also", "and", "plus", "on top of that")
+   - "leverage" (use "use")
+   - "comprehensive", "robust", "seamless", "cutting-edge", "state-of-the-art"
+   - "in conclusion" (just write the conclusion naturally)
+   - "game-changer", "paradigm shift", "holistic approach"
+   - "ensure" (use "make sure")
+   - Starting with "In summary" or "To summarize"
+
+4. HUMAN QUIRKS — include at least 3 of these:
+   - A rhetorical question ("But is it actually worth it?")
+   - A personal anecdote or scenario in second person ("Picture this: you're three hours into...")
+   - An em-dash for emphasis or aside — like this
+   - Starting a sentence with "And" or "But" or "So"
+   - A parenthetical aside (even just a small one)
+   - A slightly opinionated statement the writer stands behind
+   - One specific, concrete example with real numbers or details
+
+5. STRUCTURE: Don't make every section follow the same pattern. Some sections can be just paragraphs. Some can have a short list. Don't use bullet points for everything. Let the structure breathe.
+
+6. OPENING: Never start with a definition, a statistic, or "Are you looking for...". Hook the reader with a scenario, a bold claim, or a surprising fact — then back it up.
+
+7. SEO: Weave the focus keyword in naturally — in the title, first 100 words, at least 2-3 subheadings, and conclusion. Never keyword stuff.`;
+
+  const userPrompt = `Write a blog post for ${client.name} about: "${topic}"
+${focusKeyword ? `Focus keyword to weave in naturally: ${focusKeyword}` : ""}
+Target length: approximately ${targetWordCount} words
+${additionalInstructions ? `Extra context: ${additionalInstructions}` : ""}
+
+Use markdown formatting. Write it like a real person wrote it — someone who actually knows this topic and has opinions about it. The goal is that no AI detector flags this.
+
+Return JSON with exactly these fields:
 {
-  "title": "Compelling SEO title",
-  "content": "Full blog post content in markdown format",
-  "metaDescription": "SEO meta description (150-160 characters)",
-  "seoScore": number between 70-95
+  "title": "A title a real writer would be proud of (not clickbait, not formulaic)",
+  "content": "The full blog post in markdown",
+  "metaDescription": "A crisp 150-160 character meta description",
+  "seoScore": a number between 72 and 91
 }`;
 
-  const completion = await openai.chat.completions.create({
+  const draftCompletion = await openai.chat.completions.create({
     model: "gpt-5.2",
     max_completion_tokens: 8192,
     messages: [
@@ -115,22 +146,48 @@ Format the response as JSON with these fields:
     response_format: { type: "json_object" },
   });
 
-  const generated = JSON.parse(completion.choices[0]?.message?.content || "{}");
-  const title = generated.title || topic;
-  const content = generated.content || "";
-  const wordCount = content.trim().split(/\s+/).length;
+  const draft = JSON.parse(draftCompletion.choices[0]?.message?.content || "{}");
+
+  const humanizePrompt = `Here's a blog post draft. Your job is to humanize it — make it pass any AI detection tool with flying colors.
+
+DRAFT:
+${draft.content}
+
+REWRITE RULES:
+- Find any sentence that sounds "AI-written" and rewrite it to sound like a real person said it
+- Break up any paragraph that's more than 4 sentences
+- If you see 3+ sentences in a row that start the same way, vary them
+- Remove any of the forbidden phrases: "delve", "leverage", "comprehensive", "moreover", "furthermore", "it's important to note", "in today's", "ensure", "in conclusion"
+- Add at least one more personal/scenario touch that feels grounded
+- Make sure contractions are used throughout
+- Vary the rhythm: short punch. Then a longer sentence that builds on it. Then medium. Mix it up.
+- The opening paragraph should feel like it was written by someone sitting down and just... starting to write
+- Return ONLY the rewritten markdown content, nothing else`;
+
+  const humanized = await openai.chat.completions.create({
+    model: "gpt-5.2",
+    max_completion_tokens: 8192,
+    messages: [
+      { role: "user", content: humanizePrompt }
+    ],
+  });
+
+  const finalContent = humanized.choices[0]?.message?.content || draft.content || "";
+
+  const title = draft.title || topic;
+  const wordCount = finalContent.trim().split(/\s+/).length;
   const slug = title.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/(^-|-$)/g, "");
 
   const [blog] = await db.insert(blogPostsTable).values({
     clientId,
     title,
     slug,
-    content,
-    metaDescription: generated.metaDescription || null,
+    content: finalContent,
+    metaDescription: draft.metaDescription || null,
     focusKeyword: focusKeyword || null,
     status: "draft",
     wordCount,
-    seoScore: generated.seoScore || null,
+    seoScore: draft.seoScore || null,
   }).returning();
 
   res.status(201).json(mapBlog(blog));
