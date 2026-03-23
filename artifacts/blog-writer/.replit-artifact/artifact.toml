@@ -1,0 +1,31 @@
+kind = "web"
+previewPath = "/"
+title = "AI Blog Writer"
+version = "1.0.0"
+id = "artifacts/blog-writer"
+router = "path"
+
+[[integratedSkills]]
+name = "react-vite"
+version = "1.0.0"
+
+[[services]]
+name = "web"
+paths = [ "/" ]
+localPort = 21009
+
+[services.development]
+run = "pnpm --filter @workspace/blog-writer run dev"
+
+[services.production]
+build = [ "pnpm", "--filter", "@workspace/blog-writer", "run", "build" ]
+publicDir = "artifacts/blog-writer/dist/public"
+serve = "static"
+
+[[services.production.rewrites]]
+from = "/*"
+to = "/index.html"
+
+[services.env]
+PORT = "21009"
+BASE_PATH = "/"
